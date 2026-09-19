@@ -634,17 +634,28 @@ def cmd_build(a):
     # 切在句子中間；唯一可靠的做法是讀過之後自己指定段落起點。有審過的頁用人工斷點，
     # 沒審過的退回機械規則。
     bp = os.path.join(D, 'breaks.json')
-    manual = set(json.load(open(bp, encoding='utf-8'))['starts']) if os.path.exists(bp) else set()
+    bj = json.load(open(bp, encoding='utf-8')) if os.path.exists(bp) else {}
+    manual = set(bj.get('starts', []))
 
-    def seg_range(i):
-        start = slides[i]['sec']
-        end = slides[i + 1]['sec'] if i + 1 < len(slides) else 10 ** 9
-        return [r for r in trans if start - 6 <= r['start'] < end - 6]
+    # 每頁從第幾段開始。預設用換頁時間（提前 6 秒）切，但老師常常「話還沒講完就換頁」，
+    # 一句話的後半截會被切到下一頁開頭。breaks.json 的 page_start {"頁碼": 段索引}
+    # 是人工指定的頁首（2026-09-18 使用者裁示，見 SKILL.md 步驟 5「頁界檢查」）。
+    page_start = {int(n): k for n, k in bj.get('page_start', {}).items()}
+    first = []
+    for i, s in enumerate(slides):
+        if s['n'] in page_start:
+            first.append(page_start[s['n']])
+        else:
+            first.append(next((k for k, r in enumerate(trans) if r['start'] >= s['sec'] - 6),
+                              len(trans)))
+    first.append(len(trans))
+    assert first == sorted(first), ('page_start 不是單調遞增', first)
 
     def idx_range(i):
-        start = slides[i]['sec']
-        end = slides[i + 1]['sec'] if i + 1 < len(slides) else 10 ** 9
-        return [k for k, r in enumerate(trans) if start - 6 <= r['start'] < end - 6]
+        return list(range(first[i], first[i + 1]))
+
+    def seg_range(i):
+        return [trans[k] for k in idx_range(i)]
 
     def paragraphs(i):
         idx = idx_range(i)
